@@ -102,6 +102,21 @@ jobs:
             build_workflow: build.yml
 ```
 
+What differs between projects is an input of the called workflow:
+
+| Input | For | Meaning |
+|---|---|---|
+| `breaking` | all | What a `BREAKING CHANGE:` footer raises with `bump: auto`: `minor` (default, applications) or `major` (libraries). |
+| `build_workflow` | images | A workflow of the project that is started on the new tag and waited for. |
+| `npm_publish` | libraries | Publishes the package to the registry of its `publishConfig`; a beta goes to the `beta` dist-tag. |
+| `version_files` | Home Assistant | JSON files besides the root `package.json` that carry the version, such as `manifest.json`. |
+| `build_command` | Home Assistant | Run after the version is written and before the commit and the tag, to build what is attached. |
+| `release_assets` | Home Assistant | Files attached to the GitHub release. |
+| `release_name` | Home Assistant | Title of the release, such as `Log Notifier {{version}}`; the tag without it. |
+
+A token that may push to a protected `main` can be passed as the secret `release_token`;
+without it the workflow uses `GITHUB_TOKEN`.
+
 Next to it the project needs `.release/next.md` (start from
 [`templates/next.md`](templates/next.md)) and, if it wants one, `.release/footer.md`. It
 needs no `release` entry in `package.json` and none of the semantic-release packages.
