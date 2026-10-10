@@ -4,6 +4,7 @@
 // @semantic-release/git -- `prepare` edits the changelog the first has written
 // and leaves it for the second to commit.
 
+import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,7 @@ import { generateNotes as generateCommitNotes } from "@semantic-release/release-
 import { betasMissingFromHead, compareBase, stableMissingFromHead } from "./lib/checks.mjs";
 import { composeNotes, dropPrereleaseSections, handwritten, renderFooter } from "./lib/notes.mjs";
 import * as messages from "./lib/messages.mjs";
+import { setVersion } from "./lib/version.mjs";
 
 const TEMPLATE = fileURLToPath(new URL("./templates/next.md", import.meta.url));
 const STEPS = ["patch", "minor", "major"];
@@ -82,9 +84,26 @@ export async function generateNotes({ notes: notesConfig, bump }, context) {
     return notes;
 }
 
-// A beta leaves both files alone: its notes are the draft of the stable
-// release, and its changelog entry is what the next beta is read against.
-export async function prepare(_config, { cwd, branch }) {
+export async function prepare({ versionFiles, buildCommand }, { cwd, env, branch, nextRelease, logger }) {
+    for (const file of versionFiles) {
+        const path = join(cwd, file);
+        writeFileSync(path, setVersion(file, readFileSync(path, "utf8"), nextRelease.version));
+        logger.log("Wrote version %s to %s", nextRelease.version, file);
+    }
+
+    // Before the commit and the tag, so a build that fails leaves neither
+    // behind. It sees the version files as they will be released.
+    if (buildCommand) {
+        logger.log("Running the build command");
+        execFileSync("bash", ["-euo", "pipefail", "-c", buildCommand], {
+            cwd,
+            env: { ...env, RELEASE_VERSION: nextRelease.version, RELEASE_TAG: nextRelease.gitTag },
+            stdio: "inherit",
+        });
+    }
+
+    // A beta leaves both files alone: its notes are the draft of the stable
+    // release, and its changelog entry is what the next beta is read against.
     if (branch.prerelease) return;
     writeFileSync(join(cwd, messages.NOTES_FILE), readFileSync(TEMPLATE, "utf8"));
     const changelog = join(cwd, "CHANGELOG.md");

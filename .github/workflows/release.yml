@@ -26,6 +26,22 @@ on:
                 description: "Publish the package to the registry of its publishConfig (libraries)"
                 type: boolean
                 default: false
+            version_files:
+                description: "JSON files besides the root package.json that carry the version, e.g. a manifest.json and a card's package.json and package-lock.json"
+                type: string
+                default: ""
+            build_command:
+                description: "Shell command run after the version is written and before the commit and the tag, e.g. to build what release_assets names. Sees RELEASE_VERSION."
+                type: string
+                default: ""
+            release_assets:
+                description: "Files to attach to the GitHub release"
+                type: string
+                default: ""
+            release_name:
+                description: "Title of the GitHub release, e.g. 'Log Notifier {{version}}'. The tag without it."
+                type: string
+                default: ""
             build_workflow:
                 description: "A workflow of the project to start on the new tag and wait for, e.g. build.yml"
                 type: string
@@ -107,6 +123,10 @@ jobs:
                   RELEASE_BUMP: ${{ inputs.bump }}
                   RELEASE_BREAKING: ${{ inputs.breaking }}
                   RELEASE_NPM_PUBLISH: ${{ inputs.npm_publish }}
+                  RELEASE_VERSION_FILES: ${{ inputs.version_files }}
+                  RELEASE_BUILD_COMMAND: ${{ inputs.build_command }}
+                  RELEASE_ASSETS: ${{ inputs.release_assets }}
+                  RELEASE_NAME: ${{ inputs.release_name }}
                   DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
               run: |
                   "$GITHUB_WORKSPACE/tooling/node_modules/.bin/semantic-release" \

@@ -11,8 +11,17 @@ import { fileURLToPath } from "node:url";
 import { BETA_BRANCH, STABLE_BRANCH } from "./lib/checks.mjs";
 import { FOOTER_FILE, NOTES_FILE } from "./lib/messages.mjs";
 import { footerTemplate } from "./lib/notes.mjs";
+import { list } from "./lib/version.mjs";
 
-const { RELEASE_BUMP: bump = "auto", RELEASE_BREAKING: breaking = "minor", RELEASE_NPM_PUBLISH: npmPublish } = process.env;
+const {
+    RELEASE_BUMP: bump = "auto",
+    RELEASE_BREAKING: breaking = "minor",
+    RELEASE_NPM_PUBLISH: npmPublish,
+    RELEASE_NAME: releaseName,
+    RELEASE_BUILD_COMMAND: buildCommand,
+} = process.env;
+const versionFiles = list(process.env.RELEASE_VERSION_FILES);
+const assets = list(process.env.RELEASE_ASSETS);
 
 if (!["auto", "patch", "minor", "major"].includes(bump)) {
     throw new Error(`RELEASE_BUMP is '${bump}'; expected auto, patch, minor or major.`);
@@ -23,6 +32,11 @@ if (!["minor", "major"].includes(breaking)) {
 
 const plugin = fileURLToPath(new URL("./plugin.mjs", import.meta.url));
 const footer = existsSync(FOOTER_FILE) ? footerTemplate(readFileSync(FOOTER_FILE, "utf8")) : "";
+
+// A changelog that opens with a title keeps it on top: the plugin writes a new
+// entry below the title it is told about, and above everything otherwise.
+const CHANGELOG_TITLE = "# Changelog";
+const titled = existsSync("CHANGELOG.md") && readFileSync("CHANGELOG.md", "utf8").startsWith(`${CHANGELOG_TITLE}\n`);
 
 // The sections of the generated list, in the order they appear. A type that is
 // not listed is left out of the notes; it still counts for the version if the
@@ -50,15 +64,18 @@ export default {
                   ],
               ]
             : []),
-        "@semantic-release/changelog",
+        ["@semantic-release/changelog", titled ? { changelogTitle: CHANGELOG_TITLE } : {}],
         ...(existsSync("package.json")
             ? [["@semantic-release/npm", { npmPublish: npmPublish === "true" }]]
             : []),
-        [plugin, { bump, notes: { preset: "conventionalcommits", presetConfig: { types: sections } } }],
+        [
+            plugin,
+            { bump, versionFiles, buildCommand, notes: { preset: "conventionalcommits", presetConfig: { types: sections } } },
+        ],
         [
             "@semantic-release/git",
             {
-                assets: ["CHANGELOG.md", "package.json", "package-lock.json", NOTES_FILE],
+                assets: ["CHANGELOG.md", "package.json", "package-lock.json", NOTES_FILE, ...versionFiles],
                 message: "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}",
             },
         ],
@@ -66,7 +83,12 @@ export default {
             "@semantic-release/github",
             // The footer belongs to the release page alone: repeated under every
             // version of CHANGELOG.md it would only be noise.
-            { releaseBodyTemplate: `<%= nextRelease.notes %>${footer ? `\n\n${footer}` : ""}` },
+            {
+                releaseBodyTemplate: `<%= nextRelease.notes %>${footer ? `\n\n${footer}` : ""}`,
+                // "Log Notifier {{version}}"; the tag when a project names nothing.
+                ...(releaseName ? { releaseNameTemplate: footerTemplate(releaseName) } : {}),
+                ...(assets.length > 0 ? { assets } : {}),
+            },
         ],
     ],
 };
