@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { BETA_BRANCH, STABLE_BRANCH } from "./lib/checks.mjs";
 import { FOOTER_FILE, NOTES_FILE } from "./lib/messages.mjs";
-import { footerTemplate } from "./lib/notes.mjs";
+import { changelogPreamble, footerTemplate } from "./lib/notes.mjs";
 import { list } from "./lib/version.mjs";
 
 const {
@@ -33,10 +33,9 @@ if (!["minor", "major"].includes(breaking)) {
 const plugin = fileURLToPath(new URL("./plugin.mjs", import.meta.url));
 const footer = existsSync(FOOTER_FILE) ? footerTemplate(readFileSync(FOOTER_FILE, "utf8")) : "";
 
-// A changelog that opens with a title keeps it on top: the plugin writes a new
-// entry below the title it is told about, and above everything otherwise.
-const CHANGELOG_TITLE = "# Changelog";
-const titled = existsSync("CHANGELOG.md") && readFileSync("CHANGELOG.md", "utf8").startsWith(`${CHANGELOG_TITLE}\n`);
+// A changelog that opens with a title or a word on its format keeps both on
+// top; see changelogPreamble.
+const changelogTitle = existsSync("CHANGELOG.md") ? changelogPreamble(readFileSync("CHANGELOG.md", "utf8")) : "";
 
 // The sections of the generated list, in the order they appear. A type that is
 // not listed is left out of the notes; it still counts for the version if the
@@ -64,7 +63,7 @@ export default {
                   ],
               ]
             : []),
-        ["@semantic-release/changelog", titled ? { changelogTitle: CHANGELOG_TITLE } : {}],
+        ["@semantic-release/changelog", changelogTitle ? { changelogTitle } : {}],
         ...(existsSync("package.json")
             ? [["@semantic-release/npm", { npmPublish: npmPublish === "true" }]]
             : []),

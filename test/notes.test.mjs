@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import lodash from "lodash-es";
-import { composeNotes, dropPrereleaseSections, footerTemplate, handwritten, renderFooter } from "../lib/notes.mjs";
+import {
+    changelogPreamble,
+    composeNotes,
+    dropPrereleaseSections,
+    footerTemplate,
+    handwritten,
+    renderFooter,
+} from "../lib/notes.mjs";
 
 test("a file that holds only the template's comment is empty", () => {
     assert.equal(handwritten("<!--\nWrite below.\n-->\n\n"), "");
@@ -73,4 +80,14 @@ test("a stable release drops the entries of its betas from the changelog", () =>
             "",
         ].join("\n"),
     );
+});
+
+test("the preamble of a changelog is what stands before its first entry", () => {
+    assert.equal(changelogPreamble("# Changelog\n\nThe format follows X.\n\n## [1.4.2] — 2026-10-10\n\nText.\n"), "# Changelog\n\nThe format follows X.");
+    assert.equal(changelogPreamble("# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n"), "# Changelog");
+});
+
+test("a changelog that opens with an entry has no preamble", () => {
+    assert.equal(changelogPreamble("## [1.0.1](x) (2026-10-10)\n\n### Bug Fixes\n"), "");
+    assert.equal(changelogPreamble("# [1.7.0](x) (2026-10-10)\n\n### Features\n"), "");
 });
