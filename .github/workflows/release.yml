@@ -1,0 +1,173 @@
+name: Release
+
+# The release of every stefgo project. A project's own release.yml offers the
+# two inputs (dry_run, bump) in the Actions tab and calls this workflow; what a
+# release is and how its notes are built is decided here, once.
+#
+# semantic-release and its plugins are installed from this repository, not from
+# the project. A project needs no release dependency and no configuration --
+# only .release/next.md and, if it wants one, .release/footer.md.
+on:
+    workflow_call:
+        inputs:
+            dry_run:
+                description: "Print the next version and its notes, change nothing"
+                type: boolean
+                required: true
+            bump:
+                description: "auto (from the commit types), or patch, minor, major"
+                type: string
+                required: true
+            breaking:
+                description: "What a BREAKING CHANGE footer raises with bump auto: minor (applications) or major (libraries)"
+                type: string
+                default: minor
+            build_workflow:
+                description: "A workflow of the project to start on the new tag and wait for, e.g. build.yml"
+                type: string
+                default: ""
+        secrets:
+            release_token:
+                description: "A token that may push to a protected branch. GITHUB_TOKEN is used without it."
+                required: false
+        outputs:
+            tag:
+                description: "The tag of the release, empty when none was made"
+                value: ${{ jobs.release.outputs.tag }}
+
+jobs:
+    # No permissions block: the job takes what the calling job grants, and a
+    # project without an image to build need not grant actions: write.
+    release:
+        name: Release
+        runs-on: ubuntu-latest
+        outputs:
+            tag: ${{ steps.release.outputs.tag }}
+        env:
+            RELEASE_TOKEN: ${{ secrets.release_token || github.token }}
+
+        steps:
+            - name: Checkout the project
+              uses: actions/checkout@v7
+              with:
+                  path: project
+                  # semantic-release needs the full history and all tags to find
+                  # the last release. persist-credentials: false, because the git
+                  # plugin sets the remote itself using the token.
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            # See preflight.yml for the ref.
+            - name: Checkout the release tooling
+              uses: actions/checkout@v7
+              with:
+                  repository: stefgo/release-workflows
+                  ref: v1
+                  path: tooling
+                  persist-credentials: false
+
+            - name: Set up Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: tooling/.nvmrc
+                  cache: npm
+                  cache-dependency-path: tooling/package-lock.json
+
+            - name: Install the release tooling
+              working-directory: tooling
+              run: npm ci --omit=dev
+
+            # Started inside the project, configured from the tooling. NPM_TOKEN
+            # is there for a project whose .npmrc refers to it; npm refuses to
+            # read such a file without the variable.
+            - name: Release
+              id: release
+              working-directory: project
+              env:
+                  GITHUB_TOKEN: ${{ env.RELEASE_TOKEN }}
+                  NPM_TOKEN: ${{ github.token }}
+                  RELEASE_BUMP: ${{ inputs.bump }}
+                  RELEASE_BREAKING: ${{ inputs.breaking }}
+                  DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
+              run: |
+                  "$GITHUB_WORKSPACE/tooling/node_modules/.bin/semantic-release" \
+                      --extends "$GITHUB_WORKSPACE/tooling/release.config.mjs" $DRY_RUN_FLAG
+
+            # The tag is written by the success step of plugin.mjs, which does
+            # not run in a dry run and not when nothing was released.
+            - name: No release was produced
+              if: ${{ !inputs.dry_run && steps.release.outputs.tag == '' }}
+              run: |
+                  echo "::error::No release-worthy commits were found."
+                  echo "With bump: auto only feat:, fix:, perf: and revert: produce a version."
+                  echo "Choose patch, minor or major to release regardless of the commit types."
+                  exit 1
+
+            # The stable release empties .release/next.md and commits on main.
+            # Notes written on dev before main is merged back would collide with
+            # that, so dev is moved to the release commit right away -- by fast
+            # forward only. A dev that has moved on is left alone; the preflight
+            # asks for the merge before its next beta.
+            - name: Bring dev up to the release
+              if: ${{ steps.release.outputs.tag != '' && github.ref_name == 'main' }}
+              working-directory: project
+              run: |
+                  remote="https://x-access-token:${RELEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+                  if ! git fetch --quiet "$remote" dev 2>/dev/null; then
+                      echo "There is no dev branch."
+                  elif git merge-base --is-ancestor FETCH_HEAD HEAD; then
+                      git push --quiet "$remote" HEAD:refs/heads/dev
+                      echo "dev was fast-forwarded to the release commit."
+                  else
+                      echo "::warning::dev has commits that main does not have and was left as it is. Merge main into dev before the next beta."
+                  fi
+
+            # The tag push goes out over GITHUB_TOKEN and therefore produces no
+            # push event -- the build workflow would never see it.
+            # workflow_dispatch is the documented exception. Dispatched on the
+            # tag ref, so that github.ref there is refs/tags/... and the rules
+            # for version tags and latest apply.
+            - name: Build for the new tag
+              if: ${{ steps.release.outputs.tag != '' && inputs.build_workflow != '' }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  TAG: ${{ steps.release.outputs.tag }}
+                  BUILD_WORKFLOW: ${{ inputs.build_workflow }}
+              run: |
+                  gh workflow run "$BUILD_WORKFLOW" --ref "$TAG"
+
+                  # `gh workflow run` reports nothing about the run it starts, so
+                  # the run has to be found. The dispatch is asynchronous.
+                  run_id=""
+                  for _ in $(seq 1 30); do
+                      run_id=$(gh run list --workflow="$BUILD_WORKFLOW" --branch "$TAG" \
+                          --event workflow_dispatch --json databaseId \
+                          --jq '[.[].databaseId] | max // empty')
+                      [ -n "$run_id" ] && break
+                      sleep 2
+                  done
+                  if [ -z "$run_id" ]; then
+                      echo "::error::$BUILD_WORKFLOW was dispatched but no run appeared for $TAG."
+                      exit 1
+                  fi
+
+                  # Waiting rather than firing and forgetting: otherwise the
+                  # release goes green on a dispatch, and a build that fails
+                  # afterwards leaves a tag and a release with nothing built.
+                  echo "Watching $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
+                  gh run watch "$run_id" --exit-status
+
+            # The tag cannot be taken back from here, so say plainly what exists
+            # and what does not, instead of leaving a red job to be interpreted.
+            - name: Explain a half-finished release
+              if: ${{ failure() && steps.release.outputs.tag != '' }}
+              env:
+                  TAG: ${{ steps.release.outputs.tag }}
+                  BUILD_WORKFLOW: ${{ inputs.build_workflow }}
+              run: |
+                  echo "::error::$TAG exists as a tag, a GitHub release and a changelog entry, but a later step failed."
+                  if [ -n "$BUILD_WORKFLOW" ]; then
+                      echo "Fix the cause, then re-run the build on the tag: gh workflow run $BUILD_WORKFLOW --ref $TAG"
+                  fi
+                  echo "No second release is needed -- the version is already created."

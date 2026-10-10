@@ -1,0 +1,43 @@
+name: Release Preflight
+
+# The first job of a project's release.yml. It answers in seconds what would
+# otherwise be reported after the project's whole check run: the wrong branch,
+# no hand-written notes, or a dev that does not know the last stable version.
+on:
+    workflow_call:
+
+jobs:
+    preflight:
+        name: Branch, notes and history
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout the project
+              uses: actions/checkout@v7
+              with:
+                  path: project
+                  # The history check compares tags.
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            # A called workflow cannot ask which ref it was called at, so the
+            # line is named here. v1 is moved with every compatible change.
+            - name: Checkout the release tooling
+              uses: actions/checkout@v7
+              with:
+                  repository: stefgo/release-workflows
+                  ref: v1
+                  path: tooling
+                  persist-credentials: false
+
+            - name: Set up Node
+              uses: actions/setup-node@v7
+              with:
+                  node-version-file: tooling/.nvmrc
+
+            # Plain Node, nothing to install.
+            - name: Check
+              working-directory: project
+              run: node "$GITHUB_WORKSPACE/tooling/preflight.mjs"
