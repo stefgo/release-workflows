@@ -87,6 +87,11 @@ export default {
                 // "Log Notifier {{version}}"; the tag when a project names nothing.
                 ...(releaseName ? { releaseNameTemplate: footerTemplate(releaseName) } : {}),
                 ...(assets.length > 0 ? { assets } : {}),
+                // No comment and no label on the pull requests and issues of a
+                // release, and no issue for a failed one: each of them is a
+                // mail, and the run and the release page already say it.
+                successCommentCondition: false,
+                failCommentCondition: false,
             },
         ],
     ],

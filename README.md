@@ -93,8 +93,6 @@ jobs:
         uses: stefgo/release-workflows/.github/workflows/release.yml@v1
         permissions:
             contents: write # tag, release, CHANGELOG/package.json commit
-            issues: write # @semantic-release/github comments on issues ...
-            pull-requests: write # ... and on pull requests
             actions: write # only with build_workflow
         with:
             dry_run: ${{ inputs.dry_run }}
