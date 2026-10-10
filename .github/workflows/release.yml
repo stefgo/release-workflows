@@ -93,6 +93,18 @@ jobs:
                   "$GITHUB_WORKSPACE/tooling/node_modules/.bin/semantic-release" \
                       --extends "$GITHUB_WORKSPACE/tooling/release.config.mjs" $DRY_RUN_FLAG
 
+            # A dry run that finds nothing is not a failure, but a green run
+            # with an empty summary would not say what it found either.
+            - name: Nothing to release
+              if: ${{ inputs.dry_run && steps.release.outputs.next == '' }}
+              run: |
+                  {
+                      echo "# Dry run: nothing to release"
+                      echo
+                      echo "No commit since the last release calls for a version: with \`bump: auto\` only \`feat\`, \`fix\`, \`perf\` and \`revert\` do."
+                      echo "Choose \`patch\`, \`minor\` or \`major\` to release regardless of the commit types."
+                  } >> "$GITHUB_STEP_SUMMARY"
+
             # The tag is written by the success step of plugin.mjs, which does
             # not run in a dry run and not when nothing was released.
             - name: No release was produced

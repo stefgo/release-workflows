@@ -76,6 +76,9 @@ export async function generateNotes({ notes: notesConfig, bump }, context) {
         ];
         appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.filter(Boolean).join("\n\n")}\n`);
     }
+    // Written in a dry run as well, unlike the tag: it tells the workflow
+    // that a version was found at all.
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `next=${nextRelease.gitTag}\n`);
     return notes;
 }
 
